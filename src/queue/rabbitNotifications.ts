@@ -6,7 +6,8 @@ import { WhatsAppService } from "../services/twiliowhatsappService.js";
 
 export type NotificationJobType =
   | "email_send_dynamic_twilio"
-  | "whatsapp_send_message_twilio";
+  | "whatsapp_send_message_twilio"
+  | "whatsapp_send_media_twilio";
 
 export interface EmailDynamicQueuePayload {
   to: string | string[];
@@ -41,9 +42,19 @@ export interface WhatsAppTemplateQueuePayload {
   fromCredentials?: { phoneNumberId: string; accessToken: string };
 }
 
+export interface WhatsAppMediaQueuePayload {
+  to: string;
+  templateName: string;      // Twilio content template with media header
+  mediaValue: string;        // full URL or bare filename (see mediaVariableKey)
+  bodyVariables?: Record<string, unknown>;
+  mediaVariableKey?: string; // default handled by service (MediaUrl)
+  fromCredentials?: { phoneNumberId: string; accessToken: string };
+}
+
 type NotificationJobPayload =
   | EmailDynamicQueuePayload
-  | WhatsAppTemplateQueuePayload;
+  | WhatsAppTemplateQueuePayload
+  | WhatsAppMediaQueuePayload;
 
 interface NotificationJobMessage {
   jobId: string;
@@ -148,6 +159,12 @@ function deriveMeta(type: NotificationJobType): {
     return {
       channel: "email",
       endpoint: "api-twilio/email/send-dynamic-twilio",
+    };
+  }
+  if (type === "whatsapp_send_media_twilio") {
+    return {
+      channel: "whatsapp",
+      endpoint: "api-twilio/whatsapp/send-report-media-twilio",
     };
   }
   return {
@@ -452,6 +469,27 @@ async function processJob(job: NotificationJobMessage): Promise<unknown> {
     return { ok: true, dryRun: true, jobId: job.jobId };
   }
 
+  if (job.type === "whatsapp_send_media_twilio") {
+    const p = job.payload as WhatsAppMediaQueuePayload;
+    const res = await WhatsAppService.sendMediaTemplate(
+      p.to,
+      p.templateName,
+      p.mediaValue,
+      p.bodyVariables || {},
+      p.fromCredentials,
+      p.mediaVariableKey || "MediaUrl",
+    );
+    if (!res.ok) {
+      const err = res.error ?? { message: "WhatsApp media send failed", status: 500 };
+      const rateLimitDelay = extractRateLimitDelay(err);
+      if (rateLimitDelay !== null) {
+        throw new RateLimitError(err.message || "Twilio rate limit", rateLimitDelay);
+      }
+      throw err;
+    }
+    return res;
+  }
+
   if (job.type === "whatsapp_send_message_twilio") {
     const p = job.payload as WhatsAppTemplateQueuePayload;
     const res = await WhatsAppService.sendTemplate(
@@ -619,4 +657,7 @@ export async function startNotificationConsumer(): Promise<void> {
 
   console.log(`RabbitMQ consumer started. queue=${cfg.queue}, dlq=${cfg.dlq}`);
 }
+
+
+
 

@@ -332,6 +332,32 @@ export class WhatsAppController {
         mediaValue = rendered.fileName.replace(/\.[^.]+$/, '');
       }
 
+      // If RabbitMQ is enabled, queue the media send (rendering already done above).
+      // This mirrors send-message/send-dynamic queue behavior. Falls back to direct send otherwise.
+      if (isRabbitEnabled()) {
+        const queued = await publishNotificationJob('whatsapp_send_media_twilio', {
+          to: toStr,
+          templateName: waTemplate,
+          mediaValue,
+          bodyVariables: bodyVariables || {},
+          mediaVariableKey: mediaKey,
+          fromCredentials,
+        });
+
+        ErrorHandler.sendSuccess(res, {
+          message: 'WhatsApp report media queued',
+          data: {
+            queued: queued.queued,
+            jobId: queued.jobId,
+            mediaUrl: rendered.publicUrl,
+            format: outFormat,
+            bytes: rendered.bytes,
+            endpoint: 'api-twilio/whatsapp/send-report-media-twilio',
+          },
+        }, 202);
+        return;
+      }
+
       const result = await WhatsAppService.sendMediaTemplate(
         toStr,
         waTemplate,
@@ -668,6 +694,7 @@ function resolveFromNumber(fromNumberId: unknown): { phoneNumberId: string; acce
   if (id.length === 0) return undefined;
   return WhatsAppService.getCredentialsForPhoneNumberId(id) ?? undefined;
 }
+
 
 
 
