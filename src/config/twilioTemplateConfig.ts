@@ -67,6 +67,7 @@ export const TWILIO_TEMPLATE_MAPPINGS: Record<string, string> = {
   'store_invitation2':"HXb8fc0bee400154986a7ad86688dc7b3c",
   'view_report':"HX4d9646554715b009986934820a0ba610",
   'sd':"HX181e8a77619cd6c88e1741bd63ef564a",
+  'pdf':"HX8e6b9057e4a1a58fcad2099c98385ae3",
 };
 
 export function getTwilioTemplateId(templateName: string): string | null {
