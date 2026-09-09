@@ -1,4 +1,4 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import { WhatsAppController } from '../controllers/twiliowhatsappController.js';
 import { WhatsAppTemplateController } from '../controllers/twiliowhatsappTemplateController.js';
 import { notificationRateLimiter } from '../middleware/rateLimit.js';
@@ -14,6 +14,7 @@ router.use(duplicateMessageMiddleware);
 router.post('/send-message-twilio', WhatsAppController.sendTemplate);
 router.post('/send-message-preview-twilio', WhatsAppController.sendTemplatePreview);
 router.post('/send-dynamic-twilio', WhatsAppController.sendDynamic);
+router.post('/send-report-media-twilio', WhatsAppController.sendReportMedia);
 
 // From Numbers: list from Meta (GET), add in Meta (POST). Use fromNumberId (Meta phone_number_id) in send-dynamic/send-template/send-text to send from that number.
 router.get('/from-numbers-twilio', WhatsAppController.listFromNumbers);

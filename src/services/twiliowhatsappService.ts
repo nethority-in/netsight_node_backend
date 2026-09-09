@@ -1,4 +1,4 @@
-import twilio from 'twilio';
+﻿import twilio from 'twilio';
 import dotenv from 'dotenv';
 import { parsePhoneNumberWithError, ParseError } from 'libphonenumber-js/max';
 import type { CountryCode } from 'libphonenumber-js';
@@ -397,6 +397,110 @@ export class WhatsAppService {
 
 
 
+
+
+  static async sendMediaTemplate(
+    to: string,
+    templateName: string,
+    mediaUrl: string,
+    bodyVariables?: Record<string, unknown>,
+    fromCredentials?: { phoneNumberId: string; accessToken: string },
+    mediaVariableKey: string = 'MediaUrl'
+  ): Promise<WhatsAppServiceResponse> {
+    let cleanedPhone = '';
+    let fromNumber = '';
+    let twilioTemplateId: string | null | undefined;
+    try {
+      const phoneResult = this.normalizePhoneForWhatsApp(to);
+      if (!phoneResult.ok) {
+        return ErrorHandler.toServiceError(phoneResult.message, 400) as WhatsAppServiceResponse;
+      }
+      cleanedPhone = phoneResult.e164;
+
+      if (!templateName || typeof templateName !== 'string' || !templateName.trim()) {
+        return ErrorHandler.toServiceError('Template name is required.', 400) as WhatsAppServiceResponse;
+      }
+      if (!mediaUrl || typeof mediaUrl !== 'string' || !mediaUrl.trim()) {
+        return ErrorHandler.toServiceError('mediaUrl (or media filename) is required.', 400) as WhatsAppServiceResponse;
+      }
+      // If it looks like a URL, it must be http/https. Bare filenames (filename mode) are allowed.
+      if (/^[a-z]+:\/\//i.test(mediaUrl) && !/^https?:\/\//i.test(mediaUrl)) {
+        return ErrorHandler.toServiceError('mediaUrl must be a valid http/https URL.', 400) as WhatsAppServiceResponse;
+      }
+
+      const apiConfig = this.validateTwilioConfig();
+      if (!apiConfig.valid) {
+        return ErrorHandler.toServiceError(apiConfig.message!, 500) as WhatsAppServiceResponse;
+      }
+
+      twilioTemplateId = getTwilioTemplateId(templateName);
+      if (!twilioTemplateId) {
+        return ErrorHandler.toServiceError(
+          'Template "' + templateName + '" not found in Twilio template mappings.',
+          400
+        ) as WhatsAppServiceResponse;
+      }
+
+      fromNumber = fromCredentials?.phoneNumberId || TWILIO_WHATSAPP_FROM;
+
+      const contentVariables: Record<string, string> = {};
+      contentVariables[mediaVariableKey] = mediaUrl;
+      if (bodyVariables && typeof bodyVariables === 'object') {
+        for (const [k, v] of Object.entries(bodyVariables)) {
+          if (v !== null && v !== undefined) {
+            contentVariables[k] = String(v);
+          }
+        }
+      }
+
+      const messagePayload: any = {
+        from: 'whatsapp:' + fromNumber,
+        to: 'whatsapp:' + cleanedPhone,
+        contentSid: twilioTemplateId,
+        contentVariables: JSON.stringify(contentVariables),
+      };
+
+      console.log('Twilio send MEDIA payload (debug):', { to: cleanedPhone, from: fromNumber, templateName, contentSid: twilioTemplateId, mediaUrl });
+
+      const client = getTwilioClient();
+      const message = await client.messages.create(messagePayload);
+
+      const envLabel = process.env.NODE_ENV === 'production' ? 'SERVER' : 'LOCAL';
+      try {
+        appendWhatsAppLog(
+          { endpoint: 'send-media', env: envLabel, to: cleanedPhone, from: fromNumber, templateName, contentSid: twilioTemplateId, mediaUrl },
+          { sid: message.sid, status: message.status, to: message.to || cleanedPhone, from: message.from || fromNumber }
+        );
+      } catch (e) {
+        console.error('appendWhatsAppLog failed:', e);
+      }
+
+      return {
+        ok: true,
+        meta: {
+          sid: message.sid,
+          status: message.status,
+          to: message.to || cleanedPhone,
+          from: message.from || fromNumber,
+          dateCreated: message.dateCreated,
+          dateUpdated: message.dateUpdated,
+        },
+      };
+    } catch (error) {
+      const envLabel = process.env.NODE_ENV === 'production' ? 'SERVER' : 'LOCAL';
+      console.error('[' + envLabel + '] WhatsApp send-media failed:', error instanceof Error ? error.message : error);
+      const errResponse = this.handleError(error);
+      try {
+        appendWhatsAppLog(
+          { endpoint: 'send-media', env: envLabel, to: cleanedPhone, from: fromNumber, templateName, contentSid: twilioTemplateId, error: true },
+          errResponse?.error ? { message: errResponse.error.message, status: errResponse.error.status, code: errResponse.error.code } : { message: 'Unknown error' }
+        );
+      } catch (e) {
+        console.error('appendWhatsAppLog failed:', e);
+      }
+      return errResponse;
+    }
+  }
 
 
   // http://localhost:3002/api/whatsapp/send-message?renderHtml=1
@@ -1426,3 +1530,7 @@ export class WhatsAppService {
 }
 
 export default WhatsAppService;
+
+
+
+

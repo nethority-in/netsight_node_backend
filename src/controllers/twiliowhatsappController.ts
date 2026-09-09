@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+﻿import { Request, Response } from 'express';
 import { WhatsAppService } from '../services/twiliowhatsappService.js';
 import { ErrorHandler } from '../utils/errorHandler.js';
 import { appendFromNumbersLog } from '../utils/logApiResponse.js';
@@ -258,6 +258,105 @@ export class WhatsAppController {
       ErrorHandler.sendServiceResult(res, result);
     } catch (error) {
       ErrorHandler.sendErrorResponse(res, error, 'Error in sendTemplate', 500);
+    }
+  }
+
+  // POST /api-twilio/whatsapp/send-report-media-twilio
+  // Renders ns_temp_Notification_temp2 (or given template) HTML -> image/pdf,
+  // hosts it publicly, then sends via WhatsApp media template.
+  // Does NOT disturb existing text/template sending.
+  static async sendReportMedia(req: Request, res: Response): Promise<void> {
+    try {
+      const {
+        to,
+        reportTemplateName,   // email template to render (default ns_temp_Notification_temp2)
+        whatsappTemplateName, // Twilio content template with media header
+        format,               // 'image' | 'pdf' (default 'image')
+        parameters,           // store data (same shape as email dynamic)
+        bodyVariables,        // caption/button vars for the WhatsApp template
+        mediaVariableKey,     // template var name/index for the media header (default "MediaUrl")
+        mediaUrlMode,         // "full" (default) sends complete URL | "filename" sends only filename WITHOUT extension
+        fromNumberId,
+      } = req.body;
+
+      const toStr = to != null ? String(to).trim() : '';
+      if (!toStr) {
+        ErrorHandler.sendValidationError(res, 'Missing or empty required field: "to".');
+        return;
+      }
+      const waTemplate = whatsappTemplateName != null ? String(whatsappTemplateName).trim() : '';
+      if (!waTemplate) {
+        ErrorHandler.sendValidationError(res, 'Missing "whatsappTemplateName" (Twilio media template).');
+        return;
+      }
+      const reportTemplate = (reportTemplateName != null && String(reportTemplateName).trim() !== '')
+        ? String(reportTemplateName).trim()
+        : 'ns_temp_Notification_temp2';
+      const outFormat = (format != null && String(format).trim().toLowerCase() === 'pdf') ? 'pdf' : 'image';
+
+      // 1) Build the fully-rendered HTML using the SAME logic as email preview
+      const { buildTemplateParams } = await import('../utils/templateParamsBuilder.js');
+      const { getEmailTemplate } = await import('../templates/twilioemailTemplates.js');
+
+      const tpl = getEmailTemplate(reportTemplate);
+      if (!tpl) {
+        ErrorHandler.sendValidationError(res, 'Report template "' + reportTemplate + '" not found.');
+        return;
+      }
+      const builtParams = buildTemplateParams(reportTemplate, parameters || {});
+      let html = tpl.html.replace(/\{\{(\s*[\w.]+\s*)\}\}/g, (m: string, key: string) => {
+        const trimmed = key.trim();
+        return trimmed in builtParams ? String(builtParams[trimmed] ?? '') : m;
+      });
+      // Convert escaped \n back to real newlines for PositiveChanges/RequiresReviews
+      html = html.replace(/\\n/g, '\n');
+
+      // 2) Render to image or pdf
+      const { renderHtmlToImage, renderHtmlToPdf } = await import('../utils/reportRenderer.js');
+      const rendered = outFormat === 'pdf' ? await renderHtmlToPdf(html) : await renderHtmlToImage(html);
+      if (!rendered.ok || !rendered.publicUrl) {
+        ErrorHandler.sendErrorResponse(res, new Error(rendered.error || 'Render failed'), 'Failed to render report media', 500);
+        return;
+      }
+
+      // 3) Send via WhatsApp media template
+      const fromCredentials = resolveFromNumber(fromNumberId);
+      const mediaKey = (mediaVariableKey != null && String(mediaVariableKey).trim() !== '')
+        ? String(mediaVariableKey).trim()
+        : 'MediaUrl';
+
+      // Media value based on mode: 'full' (default) = complete URL; 'filename' = filename without extension
+      const mode = String(mediaUrlMode || 'full').trim().toLowerCase();
+      let mediaValue = rendered.publicUrl;
+      if (mode === 'filename' && rendered.fileName) {
+        mediaValue = rendered.fileName.replace(/\.[^.]+$/, '');
+      }
+
+      const result = await WhatsAppService.sendMediaTemplate(
+        toStr,
+        waTemplate,
+        mediaValue,
+        bodyVariables || {},
+        fromCredentials,
+        mediaKey
+      );
+
+      if (!result.ok) {
+        ErrorHandler.sendServiceResult(res, result);
+        return;
+      }
+
+      ErrorHandler.sendSuccess(res, {
+        message: 'WhatsApp report media sent',
+        data: {
+          ...(result as any).meta,
+          mediaUrl: rendered.publicUrl,
+          format: outFormat,
+          bytes: rendered.bytes,
+        },
+      });
+    } catch (error) {
+      ErrorHandler.sendErrorResponse(res, error, 'Error in sendReportMedia', 500);
     }
   }
 
@@ -569,3 +668,6 @@ function resolveFromNumber(fromNumberId: unknown): { phoneNumberId: string; acce
   if (id.length === 0) return undefined;
   return WhatsAppService.getCredentialsForPhoneNumberId(id) ?? undefined;
 }
+
+
+

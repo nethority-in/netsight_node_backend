@@ -1,5 +1,6 @@
 ﻿/* eslint-disable @typescript-eslint/no-unused-vars */
 import express, { Express, Request, Response } from 'express';
+import path from 'path';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { connectPrisma, disconnectPrisma } from './config/prisma.js';
@@ -36,6 +37,10 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(requestLogger);
+
+// Serve generated report media (images/PDFs) publicly for WhatsApp media sends
+const MEDIA_STORAGE_DIR = process.env.MEDIA_STORAGE_DIR || path.resolve(process.cwd(), 'public', 'reports');
+app.use('/reports', express.static(MEDIA_STORAGE_DIR));
 
 // Prisma connection and initialization
 const initializePrisma = async (): Promise<void> => {
@@ -120,4 +125,5 @@ app.listen(PORT, () => {
 });
 
 export default app;
+
 
