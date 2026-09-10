@@ -311,6 +311,15 @@ export class WhatsAppController {
       // Convert escaped \n back to real newlines for PositiveChanges/RequiresReviews
       html = html.replace(/\\n/g, '\n');
 
+      // For MEDIA (pdf/image) only: hide the "View ... Report" button (the isight.netsights.ai
+      // footer button). WhatsApp already shows that as a native button, so it's redundant on the
+      // rendered file. Visit Scaleboard is kept. Email rendering is untouched (separate path).
+      // Remove the first footer-btn-cell <td> block that contains the isight.netsights.ai link.
+      html = html.replace(
+        /<td[^>]*class="footer-btn-cell"[^>]*>\s*<table[\s\S]*?isight\.netsights\.ai[\s\S]*?<\/table>\s*<\/td>/i,
+        ''
+      );
+
       // 2) Render to image or pdf
       const { renderHtmlToImage, renderHtmlToPdf } = await import('../utils/reportRenderer.js');
       const rendered = outFormat === 'pdf' ? await renderHtmlToPdf(html) : await renderHtmlToImage(html);
@@ -694,6 +703,7 @@ function resolveFromNumber(fromNumberId: unknown): { phoneNumberId: string; acce
   if (id.length === 0) return undefined;
   return WhatsAppService.getCredentialsForPhoneNumberId(id) ?? undefined;
 }
+
 
 
 
