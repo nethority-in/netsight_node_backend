@@ -322,7 +322,13 @@ export class WhatsAppController {
 
       // 2) Render to image or pdf
       const { renderHtmlToImage, renderHtmlToPdf } = await import('../utils/reportRenderer.js');
-      const rendered = outFormat === 'pdf' ? await renderHtmlToPdf(html) : await renderHtmlToImage(html);
+      // Build a filename hint from the store name for an industry-standard file name.
+      const nameHint = (parameters && (parameters.StoreName || parameters.storeName))
+        ? String(parameters.StoreName || parameters.storeName)
+        : undefined;
+      const rendered = outFormat === 'pdf'
+        ? await renderHtmlToPdf(html, nameHint)
+        : await renderHtmlToImage(html, nameHint);
       if (!rendered.ok || !rendered.publicUrl) {
         ErrorHandler.sendErrorResponse(res, new Error(rendered.error || 'Render failed'), 'Failed to render report media', 500);
         return;
@@ -703,6 +709,7 @@ function resolveFromNumber(fromNumberId: unknown): { phoneNumberId: string; acce
   if (id.length === 0) return undefined;
   return WhatsAppService.getCredentialsForPhoneNumberId(id) ?? undefined;
 }
+
 
 
 
